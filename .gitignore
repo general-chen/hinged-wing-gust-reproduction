@@ -1,0 +1,18 @@
+# Downloaded paper and supplementary artifacts
+supplementary/
+outputs/
+reproduce_figures.ps1
+article.json
+collection_articles.json
+paper.txt
+si_part2.txt
+*.zip
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
