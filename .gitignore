@@ -1,6 +1,7 @@
 # Downloaded paper and supplementary artifacts
 supplementary/
 outputs/
+qa_previews/
 reproduce_figures.ps1
 article.json
 collection_articles.json

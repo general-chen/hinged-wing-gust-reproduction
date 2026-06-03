@@ -271,57 +271,86 @@ def write_csv(path: Path, columns: dict[str, np.ndarray]) -> None:
 def make_svg_grid(
     path: Path,
     panels: list[dict],
-    width: int = 1100,
-    height: int = 850,
+    width: int | None = None,
+    height: int | None = None,
 ) -> None:
-    margin_left = 90
-    margin_bottom = 70
-    panel_w = 420
-    panel_h = 280
-    gap_x = 120
-    gap_y = 130
-    origins = [
-        (margin_left, 60),
-        (margin_left + panel_w + gap_x, 60),
-        (margin_left, 60 + panel_h + gap_y),
-        (margin_left + panel_w + gap_x, 60 + panel_h + gap_y),
-    ]
+    panel_w = 460
+    panel_h = 300
+    left_margin = 90
+    top_margin = 85
+    right_margin = 45
+    bottom_margin = 80
+    gap_x = 85
+    gap_y = 125
+    cols = 2 if len(panels) > 1 else 1
+    layouts = []
+    cursor_col = 0
+    cursor_row = 0
+    for panel in panels:
+        span = min(cols, int(panel.get("span", 1)))
+        if cursor_col + span > cols:
+            cursor_col = 0
+            cursor_row += 1
+        plot_w = span * panel_w + (span - 1) * gap_x
+        layouts.append(
+            {
+                "x": left_margin + cursor_col * (panel_w + gap_x),
+                "y": top_margin + cursor_row * (panel_h + gap_y),
+                "w": plot_w,
+                "h": panel_h,
+            }
+        )
+        cursor_col += span
+        if cursor_col >= cols:
+            cursor_col = 0
+            cursor_row += 1
+    rows = max(layout["y"] for layout in layouts) if layouts else top_margin
+    rows = int((rows - top_margin) / (panel_h + gap_y)) + 1 if layouts else 1
+    width = width or (left_margin + cols * panel_w + (cols - 1) * gap_x + right_margin)
+    height = height or (top_margin + rows * panel_h + (rows - 1) * gap_y + bottom_margin)
 
-    def points(xs: np.ndarray, ys: np.ndarray, origin: tuple[int, int], xlim, ylim) -> str:
-        x0, y0 = origin
-        xx = x0 + (xs - xlim[0]) / (xlim[1] - xlim[0]) * panel_w
-        yy = y0 + panel_h - (ys - ylim[0]) / (ylim[1] - ylim[0]) * panel_h
+    def points(xs: np.ndarray, ys: np.ndarray, layout: dict, xlim, ylim) -> str:
+        x0, y0, plot_w, plot_h = layout["x"], layout["y"], layout["w"], layout["h"]
+        xx = x0 + (xs - xlim[0]) / (xlim[1] - xlim[0]) * plot_w
+        yy = y0 + plot_h - (ys - ylim[0]) / (ylim[1] - ylim[0]) * plot_h
         return " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xx, yy))
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
-        "<style>text{font-family:Arial,Helvetica,sans-serif;font-size:22px}.small{font-size:17px}.axis{stroke:#222;stroke-width:2;fill:none}.grid{stroke:#ddd;stroke-width:1}.legend{font-size:20px}</style>",
+        "<style>text{font-family:Arial,Helvetica,sans-serif;font-size:20px}.small{font-size:15px}.axis{stroke:#222;stroke-width:2;fill:none}.grid{stroke:#ddd;stroke-width:1}.legend{font-size:17px}.ylabel{font-size:18px;font-weight:600}</style>",
         '<rect width="100%" height="100%" fill="white"/>',
+        "<defs>",
     ]
+    for idx, layout in enumerate(layouts):
+        parts.append(f'<clipPath id="clip-{idx}"><rect x="{layout["x"]}" y="{layout["y"]}" width="{layout["w"]}" height="{layout["h"]}"/></clipPath>')
+    parts.append("</defs>")
     for idx, panel in enumerate(panels):
-        origin = origins[idx]
-        x0, y0 = origin
+        layout = layouts[idx]
+        x0, y0, plot_w, plot_h = layout["x"], layout["y"], layout["w"], layout["h"]
         xlim, ylim = panel["xlim"], panel["ylim"]
-        parts.append(f'<rect x="{x0}" y="{y0}" width="{panel_w}" height="{panel_h}" fill="none" class="axis"/>')
+        parts.append(f'<rect x="{x0}" y="{y0}" width="{plot_w}" height="{plot_h}" fill="#fbfbfb" stroke="none"/>')
         for frac in (0.0, 0.5, 1.0):
-            xt = x0 + frac * panel_w
-            yt = y0 + panel_h - frac * panel_h
+            xt = x0 + frac * plot_w
+            yt = y0 + plot_h - frac * plot_h
             xv = xlim[0] + frac * (xlim[1] - xlim[0])
             yv = ylim[0] + frac * (ylim[1] - ylim[0])
-            parts.append(f'<line x1="{xt:.1f}" x2="{xt:.1f}" y1="{y0}" y2="{y0 + panel_h}" class="grid"/>')
-            parts.append(f'<line x1="{x0}" x2="{x0 + panel_w}" y1="{yt:.1f}" y2="{yt:.1f}" class="grid"/>')
-            parts.append(f'<text x="{xt - 25:.1f}" y="{y0 + panel_h + 30}" class="small">{xv:.2g}</text>')
-            parts.append(f'<text x="{x0 - 55}" y="{yt + 7:.1f}" class="small">{yv:.2g}</text>')
-        parts.append(f'<text x="{x0 + panel_w / 2 - 55}" y="{y0 + panel_h + margin_bottom - 10}">{panel["xlabel"]}</text>')
-        parts.append(f'<text x="{x0 - 70}" y="{y0 - 12}" transform="rotate(-90 {x0 - 70},{y0 - 12})">{panel["ylabel"]}</text>')
+            parts.append(f'<line x1="{xt:.1f}" x2="{xt:.1f}" y1="{y0}" y2="{y0 + plot_h}" class="grid"/>')
+            parts.append(f'<line x1="{x0}" x2="{x0 + plot_w}" y1="{yt:.1f}" y2="{yt:.1f}" class="grid"/>')
+            parts.append(f'<text x="{xt:.1f}" y="{y0 + plot_h + 27}" class="small" text-anchor="middle">{xv:.2g}</text>')
+            parts.append(f'<text x="{x0 - 16}" y="{yt + 5:.1f}" class="small" text-anchor="end">{yv:.2g}</text>')
+        parts.append(f'<rect x="{x0}" y="{y0}" width="{plot_w}" height="{plot_h}" fill="none" class="axis"/>')
+        parts.append(f'<text x="{x0 + plot_w / 2}" y="{y0 + plot_h + 58}" text-anchor="middle">{panel["xlabel"]}</text>')
+        parts.append(f'<text x="{x0}" y="{y0 - 32}" class="ylabel">{panel["ylabel"]}</text>')
         parts.append(f'<text x="{x0 + 8}" y="{y0 + 28}" class="small">({chr(97 + idx)})</text>')
 
+        parts.append(f'<g clip-path="url(#clip-{idx})">')
         if "shade" in panel:
             xs, ys = panel["shade"]
+            bottom_y = y0 + plot_h
             polygon = (
-                f"{x0},{y0 + panel_h} "
-                + points(xs, ys, origin, xlim, ylim)
-                + f" {x0 + panel_w},{y0 + panel_h}"
+                f"{x0},{bottom_y} "
+                + points(xs, ys, layout, xlim, ylim)
+                + f" {x0 + plot_w},{bottom_y}"
             )
             parts.append(f'<polygon points="{polygon}" fill="#d7d7d7" opacity="0.75"/>')
 
@@ -329,12 +358,14 @@ def make_svg_grid(
             dash = ' stroke-dasharray="8 6"' if line.get("dash") else ""
             width_line = line.get("width", 4)
             parts.append(
-                f'<polyline points="{points(line["x"], line["y"], origin, xlim, ylim)}" '
+                f'<polyline points="{points(line["x"], line["y"], layout, xlim, ylim)}" '
                 f'fill="none" stroke="{line["color"]}" stroke-width="{width_line}"{dash}/>'
             )
+        parts.append("</g>")
         lx = x0 + 25
         ly = y0 + 35
-        for line in panel["lines"][:5]:
+        legend_lines = [line for line in panel["lines"] if line.get("label")][: panel.get("max_legend", 5)]
+        for line in legend_lines:
             if not line.get("label"):
                 continue
             dash = ' stroke-dasharray="8 6"' if line.get("dash") else ""
@@ -534,8 +565,7 @@ def figure5(params: Params) -> None:
         [
             {"xlim": (-0.05, 0.13), "ylim": (0.2, 0.65), "xlabel": "Time (s)", "ylabel": "Centre of pressure", "lines": lines_cp},
             {"xlim": (-0.05, 0.13), "ylim": (-0.05, 0.7), "xlabel": "Time (s)", "ylabel": "Fuselage velocity (m/s)", "lines": lines_vel},
-            {"xlim": (-0.05, 0.13), "ylim": (-0.05, 0.7), "xlabel": "Time (s)", "ylabel": "Rejection (m/s)", "lines": lines_rej[:5]},
-            {"xlim": (-0.05, 0.13), "ylim": (-0.05, 0.7), "xlabel": "Time (s)", "ylabel": "Rejection (m/s)", "lines": lines_rej[5:]},
+            {"xlim": (-0.05, 0.13), "ylim": (-0.05, 0.7), "xlabel": "Time (s)", "ylabel": "Rejection (m/s)", "lines": lines_rej, "max_legend": 6, "span": 2},
         ],
     )
 
@@ -561,8 +591,6 @@ def figure6(params: Params) -> None:
         OUT / "figure6_from_description.svg",
         [
             {"xlim": (-0.05, 0.13), "ylim": (-0.05, 0.85), "xlabel": "Time (s)", "ylabel": "Fuselage velocity (m/s)", "lines": lines_v},
-            {"xlim": (-0.05, 0.13), "ylim": (0, 35), "xlabel": "Time (s)", "ylabel": "Wing angle (deg)", "lines": lines_theta},
-            {"xlim": (-0.05, 0.13), "ylim": (-0.05, 0.85), "xlabel": "Time (s)", "ylabel": "Fuselage velocity (m/s)", "lines": lines_v[1:]},
             {"xlim": (-0.05, 0.13), "ylim": (0, 35), "xlabel": "Time (s)", "ylabel": "Wing angle (deg)", "lines": lines_theta},
         ],
     )
